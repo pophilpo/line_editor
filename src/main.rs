@@ -1,7 +1,7 @@
 use crossterm::{
-    cursor::{position, MoveLeft, MoveRight, MoveToColumn},
+    cursor::{position, MoveLeft, MoveRight, MoveToColumn, MoveToNextLine},
     event::read,
-    event::{Event, KeyCode, KeyEvent},
+    event::{Event, KeyCode, KeyEvent, KeyModifiers},
     style::{Color, Print, ResetColor, SetForegroundColor},
     terminal,
     terminal::ScrollUp,
@@ -40,8 +40,15 @@ fn main() -> Result<()> {
 
         'input: loop {
             match read()? {
-                Event::Key(KeyEvent { code, .. }) => match code {
+                Event::Key(KeyEvent { code, modifiers }) => match code {
                     KeyCode::Char(c) => {
+                        if modifiers == KeyModifiers::CONTROL {
+                            if c == 'c' {
+                                stdout.queue(MoveToNextLine(1))?.queue(Print("exit"))?;
+                                break 'repl;
+                            }
+                        }
+
                         let insertion_point = (caret_pos - input_start_column) as usize;
                         if insertion_point == buffer.len() {
                             stdout.queue(Print(c))?;
