@@ -42,8 +42,8 @@ fn main() -> Result<()> {
             match read()? {
                 Event::Key(KeyEvent { code, modifiers }) => match code {
                     KeyCode::Char(c) => {
-                        if modifiers == KeyModifiers::CONTROL {
-                            if c == 'c' {
+                        if modifiers == KeyModifiers::CONTROL && c == 'c' {
+                            {
                                 stdout.queue(MoveToNextLine(1))?.queue(Print("exit"))?;
                                 break 'repl;
                             }
