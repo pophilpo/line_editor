@@ -12,10 +12,10 @@ use std::io::{stdout, Stdout, Write};
 
 fn print_mesasge(stdout: &mut Stdout, msg: &str) -> Result<()> {
     stdout
-        .queue(ScrollUp(1))?
+        .queue(Print("\n"))?
         .queue(MoveToColumn(1))?
         .queue(Print(msg))?
-        .queue(ScrollUp(1))?
+        .queue(Print("\n"))?
         .queue(MoveToColumn(1))?;
     stdout.flush()?;
     Ok(())
