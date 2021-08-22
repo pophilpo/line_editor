@@ -1,16 +1,19 @@
+use std::io::{stdout, Write};
+
 use crossterm::{
     cursor::{position, MoveLeft, MoveRight, MoveToColumn, MoveToNextLine},
     event::read,
     event::{Event, KeyCode, KeyEvent, KeyModifiers},
     style::{Color, Print, ResetColor, SetForegroundColor},
-    terminal,
-    terminal::ScrollUp,
-    ExecutableCommand, QueueableCommand, Result,
+    terminal, ExecutableCommand, QueueableCommand, Result,
 };
 
-use std::io::{stdout, Stdout, Write};
+use std::io::Stdout;
 
-fn print_mesasge(stdout: &mut Stdout, msg: &str) -> Result<()> {
+mod line_buffer;
+use line_buffer::LineBuffer;
+
+fn print_message(stdout: &mut Stdout, msg: &str) -> Result<()> {
     stdout
         .queue(Print("\n"))?
         .queue(MoveToColumn(1))?
@@ -18,118 +21,136 @@ fn print_mesasge(stdout: &mut Stdout, msg: &str) -> Result<()> {
         .queue(Print("\n"))?
         .queue(MoveToColumn(1))?;
     stdout.flush()?;
+
     Ok(())
 }
 
 fn main() -> Result<()> {
-    let mut buffer = String::new();
-    let mut caret_pos: u16;
     let mut stdout = stdout();
 
     terminal::enable_raw_mode()?;
 
+    let mut buffer = LineBuffer::new();
+
     'repl: loop {
+        // print our prompt
         stdout
-            .execute(SetForegroundColor(Color::Green))?
+            .execute(SetForegroundColor(Color::Blue))?
             .execute(Print(">> :: "))?
             .execute(ResetColor)?;
 
-        let (mut input_start_column, _) = position()?;
-        input_start_column += 1;
-        caret_pos = input_start_column;
+        // set where the input begins
+        let (mut prompt_offset, _) = position()?;
+        prompt_offset += 1;
 
         'input: loop {
             match read()? {
-                Event::Key(KeyEvent { code, modifiers }) => match code {
-                    KeyCode::Char(c) => {
-                        if modifiers == KeyModifiers::CONTROL && c == 'c' {
-                            {
+                Event::Key(KeyEvent { code, modifiers }) => {
+                    match code {
+                        KeyCode::Char(c) => {
+                            if modifiers == KeyModifiers::CONTROL && c == 'c' {
                                 stdout.queue(MoveToNextLine(1))?.queue(Print("exit"))?;
                                 break 'repl;
                             }
-                        }
-
-                        let insertion_point = (caret_pos - input_start_column) as usize;
-                        if insertion_point == buffer.len() {
-                            stdout.queue(Print(c))?;
-                        } else {
-                            stdout
-                                .queue(Print(c))?
-                                .queue(Print(&buffer[insertion_point..]))?
-                                .queue(MoveToColumn(caret_pos + 1))?;
-                        }
-                        stdout.flush()?;
-                        buffer.insert(insertion_point, c);
-                        caret_pos += 1;
-                    }
-                    KeyCode::Enter => {
-                        if buffer == "exit()" {
-                            break 'repl;
-                        } else {
-                            stdout.queue(ScrollUp(1))?.queue(MoveToColumn(1))?;
+                            let insertion_point = buffer.get_insertion_point();
+                            if insertion_point == buffer.get_buffer_len() {
+                                stdout.queue(Print(c))?;
+                            } else {
+                                stdout
+                                    .queue(Print(c))?
+                                    .queue(Print(buffer.slice_buffer(insertion_point)))?
+                                    .queue(MoveToColumn(
+                                        insertion_point as u16 + prompt_offset + 1,
+                                    ))?;
+                            }
                             stdout.flush()?;
-                            buffer.clear();
-                            break 'input;
+                            buffer.insert_char(buffer.get_insertion_point(), c);
+                            buffer.inc_insertion_point();
                         }
-                    }
-                    KeyCode::Left => {
-                        if caret_pos > input_start_column {
-                            stdout.queue(MoveLeft(1))?;
-                            stdout.flush()?;
-                            caret_pos -= 1;
+                        KeyCode::Backspace => {
+                            let insertion_point = buffer.get_insertion_point();
+                            if insertion_point == buffer.get_buffer_len() && !buffer.is_empty() {
+                                buffer.dec_insertion_point();
+                                buffer.pop();
+                                stdout
+                                    .queue(MoveLeft(1))?
+                                    .queue(Print(' '))?
+                                    .queue(MoveLeft(1))?;
+                                stdout.flush()?;
+                            } else if insertion_point < buffer.get_buffer_len()
+                                && !buffer.is_empty()
+                            {
+                                buffer.dec_insertion_point();
+                                let insertion_point = buffer.get_insertion_point();
+                                buffer.remove_char(insertion_point);
+
+                                stdout
+                                    .queue(MoveLeft(1))?
+                                    .queue(Print(buffer.slice_buffer(insertion_point)))?
+                                    .queue(Print(' '))?
+                                    .queue(MoveToColumn(insertion_point as u16 + prompt_offset))?;
+                                stdout.flush()?;
+                            }
                         }
-                    }
-                    KeyCode::Right => {
-                        if (caret_pos as usize) < (input_start_column as usize + buffer.len()) {
-                            stdout.queue(MoveRight(1))?;
-                            stdout.flush()?;
-                            caret_pos += 1;
+                        KeyCode::Delete => {
+                            let insertion_point = buffer.get_insertion_point();
+                            if insertion_point < buffer.get_buffer_len() && !buffer.is_empty() {
+                                buffer.remove_char(insertion_point);
+                                stdout
+                                    .queue(Print(buffer.slice_buffer(insertion_point)))?
+                                    .queue(Print(' '))?
+                                    .queue(MoveToColumn(insertion_point as u16 + prompt_offset))?;
+                                stdout.flush()?;
+                            }
                         }
-                    }
-
-                    KeyCode::Backspace => {
-                        let insertion_point = (caret_pos - input_start_column) as usize;
-
-                        if insertion_point == buffer.len() && !buffer.is_empty() {
-                            buffer.pop();
-                            stdout
-                                .queue(MoveLeft(1))?
-                                .queue(Print(" "))?
-                                .queue(MoveLeft(1))?;
-                            stdout.flush()?;
-                            caret_pos -= 1;
-                        } else if insertion_point < buffer.len() {
-                            buffer.remove(insertion_point - 1);
-                            stdout
-                                .queue(MoveLeft(1))?
-                                .queue(Print(&buffer[(insertion_point - 1)..]))?
-                                .queue(Print(" "))?
-                                .queue(MoveToColumn(caret_pos))?;
-                            stdout.flush()?;
-                            caret_pos -= 1;
+                        KeyCode::Enter => {
+                            if buffer.get_buffer() == "exit" {
+                                break 'repl;
+                            } else {
+                                print_message(
+                                    &mut stdout,
+                                    &format!("Our buffer: {}", buffer.get_buffer()),
+                                )?;
+                                buffer.clear();
+                                buffer.set_insertion_point(0);
+                                break 'input;
+                            }
                         }
-                    }
-                    KeyCode::Delete => {
-                        let insertion_point = (caret_pos - input_start_column) as usize;
-
-                        if insertion_point < buffer.len() && !buffer.is_empty() {
-                            buffer.remove(insertion_point);
-                            stdout
-                                .queue(Print(&buffer[insertion_point..]))?
-                                .queue(Print(" "))?
-                                .queue(MoveToColumn(caret_pos))?;
-
-                            stdout.flush()?;
+                        KeyCode::Left => {
+                            if buffer.get_insertion_point() > 0 {
+                                // If the ALT modifier is set, we want to jump words for more
+                                // natural editing. Jumping words basically means: move to next
+                                // whitespace in the given direction.
+                                stdout.queue(MoveLeft(1))?;
+                                buffer.dec_insertion_point();
+                                stdout.flush()?;
+                            }
                         }
-                    }
-
-                    _ => {}
-                },
-                _ => {}
+                        KeyCode::Right => {
+                            if buffer.get_insertion_point() < buffer.get_buffer_len() {
+                                stdout.queue(MoveRight(1))?;
+                                buffer.inc_insertion_point();
+                                stdout.flush()?;
+                            }
+                        }
+                        _ => {}
+                    };
+                }
+                Event::Mouse(event) => {
+                    print_message(&mut stdout, &format!("{:?}", event))?;
+                }
+                Event::Resize(width, height) => {
+                    print_message(
+                        &mut stdout,
+                        &format!("width: {} and height: {}", width, height),
+                    )?;
+                }
             }
         }
     }
 
     terminal::disable_raw_mode()?;
+
+    println!();
     Ok(())
 }

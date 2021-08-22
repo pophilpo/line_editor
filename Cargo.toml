@@ -7,3 +7,4 @@ edition = "2018"
 
 [dependencies]
 crossterm="0.19"
+unicode-segmentation = "1.7.1"
