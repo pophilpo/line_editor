@@ -104,7 +104,7 @@ fn main() -> Result<()> {
                             }
                         }
                         KeyCode::Enter => {
-                            if buffer.get_buffer() == "exit" {
+                            if buffer.get_buffer() == "exit()" {
                                 break 'repl;
                             } else {
                                 print_message(
@@ -118,9 +118,6 @@ fn main() -> Result<()> {
                         }
                         KeyCode::Left => {
                             if buffer.get_insertion_point() > 0 {
-                                // If the ALT modifier is set, we want to jump words for more
-                                // natural editing. Jumping words basically means: move to next
-                                // whitespace in the given direction.
                                 stdout.queue(MoveLeft(1))?;
                                 buffer.dec_insertion_point();
                                 stdout.flush()?;
